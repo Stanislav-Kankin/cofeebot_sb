@@ -14,3 +14,5 @@ class RegistrationStates(StatesGroup):
 
 class AdminStates(StatesGroup):
     waiting_broadcast_message = State()
+    waiting_manual_match_user1 = State()
+    waiting_manual_match_user2 = State()

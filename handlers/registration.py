@@ -1,16 +1,13 @@
 from aiogram import Router, F
-from aiogram.types import Message, ReplyKeyboardRemove
+from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 
 from database import Database
 from utils.states import RegistrationStates
-from utils.keyboards import get_main_menu_keyboard
+from utils.keyboards import get_main_menu_inline
 
 router = Router()
 db = Database()
-
-questions = db.get_questions()
-current_question_index = 0
 
 @router.message(RegistrationStates.waiting_name)
 async def process_name(message: Message, state: FSMContext):
@@ -92,12 +89,12 @@ async def process_contact_preference(message: Message, state: FSMContext):
             "Теперь ты в системе Random Coffee. Я буду подбирать тебе собеседников "
             "на основе твоих интересов и отправлять уведомления.\n\n"
             "Обычно мэтчинг происходит 1-2 раза в неделю. Жди приглашения! ✨",
-            reply_markup=get_main_menu_keyboard()
+            reply_markup=get_main_menu_inline()
         )
     else:
         await message.answer(
             "😔 Произошла ошибка при сохранении профиля. Попробуй позже.",
-            reply_markup=get_main_menu_keyboard()
+            reply_markup=get_main_menu_inline()
         )
     
     await state.clear()

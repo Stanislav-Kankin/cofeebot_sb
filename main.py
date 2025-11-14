@@ -3,6 +3,7 @@ import logging
 from aiogram import Bot, Dispatcher
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
+from datetime import datetime
 
 from config import Config
 from database import Database
@@ -38,8 +39,36 @@ async def scheduled_matching():
     """Запуск мэтчинга по расписанию"""
     logger.info("Running scheduled matching...")
     try:
-        matches_count = match_maker.run_matching_round()
-        logger.info(f"Scheduled matching completed. Created {matches_count} matches")
+        # Создаем запись о запланированном мэтче
+        db.create_scheduled_match(datetime.now().isoformat())
+        
+        # Запускаем мэтчинг с принудительным созданием пар
+        matches_count = match_maker.run_matching_round(force_all=True)
+        
+        if matches_count > 0:
+            # Уведомляем пользователей
+            active_users = db.get_all_active_users()
+            notified_count = 0
+            for user in active_users:
+                pending_matches = db.get_pending_matches(user['user_id'])
+                if pending_matches:
+                    try:
+                        for match in pending_matches:
+                            if match['user1_id'] == user['user_id']:
+                                partner_id = match['user2_id']
+                            else:
+                                partner_id = match['user1_id']
+                            
+                            partner = db.get_user(partner_id)
+                            if partner:
+                                from handlers.matching import send_match_proposal
+                                success = await send_match_proposal(bot, user['user_id'], partner, match['id'])
+                                if success:
+                                    notified_count += 1
+                    except Exception as e:
+                        logger.error(f"Error notifying user {user['user_id']}: {e}")
+        
+        logger.info(f"Scheduled matching completed. Created {matches_count} matches, notified {notified_count} users")
     except Exception as e:
         logger.error(f"Error in scheduled matching: {e}")
 
@@ -62,7 +91,6 @@ async def on_startup():
 async def on_shutdown():
     """Действия при остановке бота"""
     logger.info("Bot stopped!")
-    # Можно добавить закрытие соединений с БД
 
 async def main():
     dp.startup.register(on_startup)

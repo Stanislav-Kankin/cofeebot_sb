@@ -1,0 +1,259 @@
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
+from datetime import datetime, timedelta
+
+# ===== INLINE КНОПКИ ДЛЯ ПОЛЬЗОВАТЕЛЕЙ =====
+
+def get_main_menu_inline():
+    """Главное меню с inline кнопками"""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="👤 Мой профиль", callback_data="my_profile"),
+                InlineKeyboardButton(text="🔍 Найти собеседника", callback_data="find_match")
+            ],
+            [
+                InlineKeyboardButton(text="📊 Статистика", callback_data="my_stats"),
+                InlineKeyboardButton(text="⚙️ Настройки", callback_data="settings")
+            ]
+        ]
+    )
+
+def get_accept_match_inline(match_id: int):
+    """Кнопки для принятия/отклонения мэтча"""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="✅ Принять мэтч", callback_data=f"accept_{match_id}"),
+                InlineKeyboardButton(text="❌ Отклонить", callback_data=f"reject_{match_id}")
+            ]
+        ]
+    )
+
+def get_contact_inline(target_user_id: int, target_username: str = None):
+    """Кнопки для связи с собеседником"""
+    buttons = []
+    
+    if target_username:
+        buttons.append([
+            InlineKeyboardButton(
+                text="💌 Написать в Telegram", 
+                url=f"https://t.me/{target_username}"
+            )
+        ])
+    else:
+        buttons.append([
+            InlineKeyboardButton(
+                text="💌 Написать собеседнику", 
+                url=f"tg://user?id={target_user_id}"
+            )
+        ])
+    
+    buttons.append([
+        InlineKeyboardButton(text="✅ Подтвердить контакт", callback_data="contact_confirmed"),
+        InlineKeyboardButton(text="🔄 Новый мэтч", callback_data="new_match")
+    ])
+    
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+def get_profile_actions_inline():
+    """Действия с профилем"""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="✏️ Редактировать профиль", callback_data="edit_profile"),
+                InlineKeyboardButton(text="🔍 Найти собеседника", callback_data="find_match")
+            ],
+            [
+                InlineKeyboardButton(text="📊 Статистика", callback_data="my_stats"),
+                InlineKeyboardButton(text="🏠 В главное меню", callback_data="main_menu")
+            ]
+        ]
+    )
+
+# ===== INLINE КНОПКИ ДЛЯ АДМИНА =====
+
+def get_admin_main_inline():
+    """Главное меню админа"""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="📊 Статистика", callback_data="admin_stats"),
+                InlineKeyboardButton(text="👥 Пользователи", callback_data="admin_users")
+            ],
+            [
+                InlineKeyboardButton(text="🔍 Мэтчинг", callback_data="admin_matching"),
+                InlineKeyboardButton(text="📅 Планировщик", callback_data="admin_scheduler")
+            ],
+            [
+                InlineKeyboardButton(text="🔄 Быстрый мэтчинг", callback_data="admin_quick_match"),
+                InlineKeyboardButton(text="⚙️ Управление", callback_data="admin_management")
+            ],
+            [
+                InlineKeyboardButton(text="🏠 В главное меню", callback_data="main_menu")
+            ]
+        ]
+    )
+
+def get_admin_matching_inline():
+    """Меню мэтчинга для админа"""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="🔄 Запустить мэтчинг", callback_data="admin_run_matching"),
+                InlineKeyboardButton(text="🎯 Принудительный мэтчинг", callback_data="admin_force_matching")
+            ],
+            [
+                InlineKeyboardButton(text="📋 Ожидающие мэтчи", callback_data="admin_pending_matches"),
+                InlineKeyboardButton(text="👥 Создать мэтч вручную", callback_data="admin_create_match")
+            ],
+            [
+                InlineKeyboardButton(text="🔙 Назад", callback_data="admin_main")
+            ]
+        ]
+    )
+
+def get_admin_scheduler_inline():
+    """Меню планировщика"""
+    today = datetime.now()
+    next_week = today + timedelta(days=7)
+    
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="📅 Запланировать мэтчинг", callback_data="admin_schedule_match"),
+                InlineKeyboardButton(text="📋 Активные расписания", callback_data="admin_view_schedules")
+            ],
+            [
+                InlineKeyboardButton(text="🔄 Запустить сейчас", callback_data="admin_run_scheduled"),
+                InlineKeyboardButton(text="🧹 Очистить историю", callback_data="admin_cleanup")
+            ],
+            [
+                InlineKeyboardButton(text="🔙 Назад", callback_data="admin_main")
+            ]
+        ]
+    )
+
+def get_admin_management_inline():
+    """Меню управления"""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="📢 Рассылка", callback_data="admin_broadcast"),
+                InlineKeyboardButton(text="🐛 Отладка", callback_data="admin_debug")
+            ],
+            [
+                InlineKeyboardButton(text="📊 Детальная статистика", callback_data="admin_detailed_stats"),
+                InlineKeyboardButton(text="🔧 Настройки", callback_data="admin_settings")
+            ],
+            [
+                InlineKeyboardButton(text="🔙 Назад", callback_data="admin_main")
+            ]
+        ]
+    )
+
+def get_schedule_date_inline():
+    """Кнопки для выбора даты мэтчинга"""
+    today = datetime.now()
+    dates = []
+    
+    for i in range(1, 8):
+        date = today + timedelta(days=i)
+        dates.append([
+            InlineKeyboardButton(
+                text=date.strftime("%d.%m (%A)"),
+                callback_data=f"schedule_{date.strftime('%Y-%m-%d')}"
+            )
+        ])
+    
+    dates.append([InlineKeyboardButton(text="🔙 Назад", callback_data="admin_scheduler")])
+    
+    return InlineKeyboardMarkup(inline_keyboard=dates)
+
+def get_back_to_admin_inline():
+    """Кнопка возврата в админ-панель"""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="🔙 В админ-панель", callback_data="admin_main")]
+        ]
+    )
+
+def get_back_to_main_inline():
+    """Кнопка возврата в главное меню"""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="🏠 В главное меню", callback_data="main_menu")]
+        ]
+    )
+
+# ===== REPLY КНОПКИ (для совместимости) =====
+
+def get_main_menu_keyboard():
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="📊 Мой профиль"), KeyboardButton(text="🔍 Найти собеседника")],
+            [KeyboardButton(text="📈 Статистика"), KeyboardButton(text="⚙️ Настройки")]
+        ],
+        resize_keyboard=True
+    )
+
+def get_edit_profile_inline():
+    """Кнопки для редактирования профиля"""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="✏️ Имя", callback_data="edit_name"),
+                InlineKeyboardButton(text="🎂 Возраст", callback_data="edit_age")
+            ],
+            [
+                InlineKeyboardButton(text="🏙 Город", callback_data="edit_city"),
+                InlineKeyboardButton(text="💼 Профессия", callback_data="edit_profession")
+            ],
+            [
+                InlineKeyboardButton(text="🎯 Интересы", callback_data="edit_interests"),
+                InlineKeyboardButton(text="🎯 Цели", callback_data="edit_goals")
+            ],
+            [
+                InlineKeyboardButton(text="📝 О себе", callback_data="edit_about"),
+                InlineKeyboardButton(text="📞 Контакты", callback_data="edit_contacts")
+            ],
+            [
+                InlineKeyboardButton(text="🏠 В главное меню", callback_data="main_menu")
+            ]
+        ]
+    )
+
+def get_settings_inline():
+    """Кнопки настроек пользователя"""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="✏️ Редактировать профиль", callback_data="edit_profile"),
+                InlineKeyboardButton(text="🟢 Вкл/Выкл", callback_data="toggle_active")
+            ],
+            [
+                InlineKeyboardButton(text="📊 Статистика", callback_data="my_stats"),
+                InlineKeyboardButton(text="🔍 Найти собеседника", callback_data="find_match")
+            ],
+            [
+                InlineKeyboardButton(text="🏠 В главное меню", callback_data="main_menu")
+            ]
+        ]
+    )
+
+def get_admin_settings_inline():
+    """Кнопки настроек админа"""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="📢 Рассылка", callback_data="admin_broadcast"),
+                InlineKeyboardButton(text="🧹 Очистка", callback_data="admin_cleanup")
+            ],
+            [
+                InlineKeyboardButton(text="🔧 Настройки БД", callback_data="admin_db_settings"),
+                InlineKeyboardButton(text="📊 Статистика", callback_data="admin_stats")
+            ],
+            [
+                InlineKeyboardButton(text="🔙 Назад", callback_data="admin_management")
+            ]
+        ]
+    )

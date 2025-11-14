@@ -17,9 +17,34 @@ logger = logging.getLogger(__name__)
 async def send_match_proposal(bot: Bot, user_id: int, partner: dict, match_id: int):
     """Отправляет предложение мэтча пользователю"""
     try:
-        common_text = "общие интересы"
+        # Получаем полную информацию о мэтче для common_interests
+        match_info = None
+        try:
+            conn = db.get_connection()
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT common_interests, is_forced FROM matches WHERE id = ?
+            ''', (match_id,))
+            row = cursor.fetchone()
+            if row:
+                match_info = {
+                    'common_interests': row[0],
+                    'is_forced': bool(row[1])
+                }
+            conn.close()
+        except Exception as e:
+            logger.error(f"Error getting match info: {e}")
         
-        forced_text = " 🎯" 
+        common_text = "случайное знакомство"
+        if match_info and match_info['common_interests']:
+            try:
+                common_interests = json.loads(match_info['common_interests'])
+                if common_interests and common_interests != ["случайное знакомство"]:
+                    common_text = ", ".join(common_interests)
+            except:
+                pass
+        
+        forced_text = " 🎯" if match_info and match_info.get('is_forced') else ""
         
         message_text = (
             f"🎯 Найден потенциальный собеседник{forced_text}!\n\n"

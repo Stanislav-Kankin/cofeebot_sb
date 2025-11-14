@@ -19,7 +19,7 @@ async def cmd_start(message: Message, state: FSMContext):
     user_id = message.from_user.id
     username = message.from_user.username
     
-    # Очищаем состояние (на всякий случай)
+    # Очищаем состояние
     await state.clear()
     
     # Добавляем/обновляем пользователя в базе
@@ -39,7 +39,6 @@ async def cmd_start(message: Message, state: FSMContext):
             "Давай заполним твой профиль, это займет всего 2 минуты.\n\n"
             "Как тебя зовут?"
         )
-
         await state.set_state(RegistrationStates.waiting_name)
     else:
         # Обновляем last_active
@@ -55,17 +54,31 @@ async def cmd_start(message: Message, state: FSMContext):
         except Exception as e:
             logger.error(f"Error updating last_active: {e}")
         
-        # ПОСЛЕ заполнения профиля показываем админку или обычное меню
-        if user_id in Config.ADMIN_IDS:
-            await message.answer(
-                "👋 Добро пожаловать в панель администратора!",
-                reply_markup=get_admin_main_inline()
-            )
-        else:
-            await message.answer(
-                "🎉 С возвращением! Выбери действие:",
-                reply_markup=get_main_menu_inline()
-            )
+        # ПОСЛЕ заполнения профиля показываем обычное меню для всех
+        await message.answer(
+            "🎉 С возвращением! Выбери действие:",
+            reply_markup=get_main_menu_inline()
+        )
+
+@router.message(Command("admin"))
+async def cmd_admin(message: Message):
+    """Отдельная команда для админ-панели"""
+    user_id = message.from_user.id
+    
+    if user_id not in Config.ADMIN_IDS:
+        await message.answer("❌ Нет доступа к админ-панели")
+        return
+    
+    # Проверяем, заполнен ли профиль админа
+    user = db.get_user(user_id)
+    if not user or not user.get('profile_completed'):
+        await message.answer("❌ Сначала заполни свой профиль через /start")
+        return
+    
+    await message.answer(
+        "👋 Добро пожаловать в панель администратора!",
+        reply_markup=get_admin_main_inline()
+    )
 
 @router.callback_query(F.data == "main_menu")
 async def back_to_main(callback: CallbackQuery, state: FSMContext):

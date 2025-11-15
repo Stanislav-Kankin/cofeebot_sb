@@ -3,17 +3,19 @@ from aiogram.types import Message, CallbackQuery
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 import logging
-
+import csv
+import io
+from datetime import datetime
+from aiogram.types import BufferedInputFile
 from database import Database
 from services.matcher import MatchMaker
 from utils.states import AdminStates
 
 from utils.keyboards import (
     get_admin_main_inline, get_admin_matching_inline,
-    get_admin_scheduler_inline,
-    get_admin_management_inline, get_schedule_date_inline,
+    get_admin_management_inline,
     get_main_menu_inline, get_admin_settings_inline,
-    get_back_to_admin_inline
+    get_back_to_admin_inline,
 )
 from config import Config
 
@@ -26,6 +28,55 @@ logger = logging.getLogger(__name__)
 
 def is_admin(user_id: int) -> bool:
     return user_id in Config.ADMIN_IDS
+
+    #==== Вспомогательные функции для csv ====
+
+def clean_csv_value(value):
+    """Очищает значение для CSV, убирая лишние символы"""
+    if value is None:
+        return ''
+    
+    value_str = str(value).strip()
+    
+    # Заменяем все проблемные символы на запятые с пробелами
+    replacements = ['\t', '    ', '   ', '  ']  # табуляции и множественные пробелы
+    for replacement in replacements:
+        value_str = value_str.replace(replacement, ', ')
+    
+    # Убираем лишние пробелы
+    value_str = ' '.join(value_str.split())
+    
+    # Убираем дублирующиеся запятые
+    while ', ,' in value_str:
+        value_str = value_str.replace(', ,', ',')
+    
+    value_str = value_str.strip(' ,')
+    
+    return value_str
+
+def format_date(date_string):
+    """Форматирует дату для лучшей читаемости"""
+    if not date_string:
+        return ''
+    
+    # Пытаемся разобрать разные форматы дат
+    try:
+        # Убираем временную зону если есть
+        if '+' in date_string:
+            date_string = date_string.split('+')[0]
+        
+        # Пробуем разные форматы
+        for fmt in ['%Y-%m-%dT%H:%M:%S', '%Y-%m-%dT%H:%M:%S.%f', '%Y-%m-%d %H:%M:%S']:
+            try:
+                dt = datetime.strptime(date_string.strip(), fmt)
+                return dt.strftime('%Y-%m-%d %H:%M:%S')
+            except ValueError:
+                continue
+        
+        # Если не удалось распарсить, возвращаем как есть
+        return date_string
+    except:
+        return date_string
 
 # ===== КОМАНДА /admin =====
 
@@ -464,185 +515,6 @@ async def process_manual_match_user2(message: Message, state: FSMContext, bot: B
     except ValueError:
         await message.answer("❌ Введите числовой ID пользователя:")
 
-# ===== РАЗДЕЛ ПЛАНИРОВЩИКА =====
-
-
-@router.callback_query(F.data == "admin_scheduler")
-async def admin_scheduler(callback: CallbackQuery, state: FSMContext):
-    """Меню планировщика"""
-    if not is_admin(callback.from_user.id):
-        await callback.answer("Нет доступа")
-        return
-
-    # Очищаем состояние
-    await state.clear()
-
-    scheduled_matches = db.get_scheduled_matches()
-    active_scheduled = [
-        m for m in scheduled_matches if m['status'] == 'scheduled'
-        ]
-
-    await callback.message.edit_text(
-        f"📅 Планировщик мэтчинга\n\n"
-        f"Активных расписаний: {len(active_scheduled)}\n"
-        f"Выберите действие:",
-        reply_markup=get_admin_scheduler_inline()
-    )
-    await callback.answer()
-
-
-@router.callback_query(F.data == "admin_schedule_match")
-async def admin_schedule_match(callback: CallbackQuery):
-    """Запланировать мэтчинг"""
-    if not is_admin(callback.from_user.id):
-        await callback.answer("Нет доступа")
-        return
-
-    await callback.message.edit_text(
-        "📅 Выберите дату для мэтчинга:",
-        reply_markup=get_schedule_date_inline()
-    )
-    await callback.answer()
-
-
-@router.callback_query(F.data.startswith("schedule_"))
-async def process_schedule_date(callback: CallbackQuery, bot: Bot):
-    """Обработка выбора даты"""
-    if not is_admin(callback.from_user.id):
-        await callback.answer("Нет доступа")
-        return
-
-    date_str = callback.data.split("_")[1]
-
-    # Создаем запланированный мэтч
-    match_id = db.create_scheduled_match(date_str)
-
-    if match_id > 0:
-        # Запускаем мэтчинг сразу для тестирования
-        active_users = db.get_all_active_users()
-        matches_count = match_maker.run_matching_round(force_all=True)
-        
-        notified_count = 0
-        if matches_count > 0:
-            for user in active_users:
-                pending_matches = db.get_pending_matches(user['user_id'])
-                if pending_matches:
-                    try:
-                        for match in pending_matches:
-                            if match['user1_id'] == user['user_id']:
-                                partner_id = match['user2_id']
-                            else:
-                                partner_id = match['user1_id']
-                            
-                            partner = db.get_user(partner_id)
-                            if partner:
-                                success = await send_match_proposal(bot, user['user_id'], partner, match['id'])
-                                if success:
-                                    notified_count += 1
-                    except Exception as e:
-                        logger.error(f"Error notifying user {user['user_id']}: {e}")
-
-        await callback.message.edit_text(
-            f"✅ Мэтчинг запланирован на {date_str}\n\n"
-            f"ID расписания: {match_id}\n"
-            f"Создано пар: {matches_count}\n"
-            f"Уведомлений отправлено: {notified_count}",
-            reply_markup=get_admin_scheduler_inline()
-        )
-    else:
-        await callback.message.edit_text(
-            "❌ Ошибка при планировании мэтчинга",
-            reply_markup=get_admin_scheduler_inline()
-        )
-    await callback.answer()
-
-
-@router.callback_query(F.data == "admin_view_schedules")
-async def admin_view_schedules(callback: CallbackQuery):
-    """Просмотр активных расписаний"""
-    if not is_admin(callback.from_user.id):
-        await callback.answer("Нет доступа")
-        return
-
-    scheduled_matches = db.get_scheduled_matches()
-
-    if not scheduled_matches:
-        await callback.message.edit_text(
-            "📅 Нет активных расписаний",
-            reply_markup=get_admin_scheduler_inline()
-        )
-        return
-
-    message_text = "📅 Активные расписания:\n\n"
-
-    for match in scheduled_matches[:10]:
-        status_icon = "🟢" if match['status'] == 'scheduled' else "✅"
-        message_text += (
-            f"{status_icon} {match['match_date'][:10]}\n"
-            f"   Статус: {match['status']}\n"
-            f"   Создано: {match['created_date'][:16]}\n\n"
-        )
-
-    await callback.message.edit_text(
-        message_text,
-        reply_markup=get_admin_scheduler_inline()
-    )
-    await callback.answer()
-
-
-@router.callback_query(F.data == "admin_run_scheduled")
-async def admin_run_scheduled(callback: CallbackQuery, bot: Bot):
-    """Запуск запланированного мэтчинга сейчас"""
-    if not is_admin(callback.from_user.id):
-        await callback.answer("Нет доступа")
-        return
-
-    await callback.message.edit_text("🔄 Запускаю мэтчинг по расписанию...")
-
-    active_users = db.get_all_active_users()
-    
-    if len(active_users) < 2:
-        await callback.message.edit_text(
-            "❌ Недостаточно пользователей для мэтчинга",
-            reply_markup=get_admin_scheduler_inline()
-        )
-        return
-
-    # Создаем запись о запланированном мэтче
-    from datetime import datetime
-    db.create_scheduled_match(datetime.now().isoformat())
-    
-    # Запускаем мэтчинг
-    matches_count = match_maker.run_matching_round(force_all=True)
-    
-    notified_count = 0
-    if matches_count > 0:
-        for user in active_users:
-            pending_matches = db.get_pending_matches(user['user_id'])
-            if pending_matches:
-                try:
-                    for match in pending_matches:
-                        if match['user1_id'] == user['user_id']:
-                            partner_id = match['user2_id']
-                        else:
-                            partner_id = match['user1_id']
-                        
-                        partner = db.get_user(partner_id)
-                        if partner:
-                            success = await send_match_proposal(bot, user['user_id'], partner, match['id'])
-                            if success:
-                                notified_count += 1
-                except Exception as e:
-                    logger.error(f"Error notifying user {user['user_id']}: {e}")
-
-    await callback.message.edit_text(
-        f"✅ Мэтчинг по расписанию завершен!\n\n"
-        f"Создано пар: {matches_count}\n"
-        f"Уведомлений отправлено: {notified_count}",
-        reply_markup=get_admin_scheduler_inline()
-    )
-    await callback.answer()
-
 # ===== РАЗДЕЛ УПРАВЛЕНИЯ =====
 
 
@@ -756,6 +628,35 @@ async def admin_cleanup(callback: CallbackQuery):
     await callback.answer()
 
 
+@router.callback_query(F.data == "admin_cleanup_matches")
+async def admin_cleanup_matches(callback: CallbackQuery):
+    """Очистка всех мэтчей"""
+    if not is_admin(callback.from_user.id):
+        await callback.answer("Нет доступа")
+        return
+
+    try:
+        success = db.cleanup_matches()
+        
+        if success:
+            await callback.message.edit_text(
+                "🧹 Все мэтчи успешно очищены!\n\n"
+                "Теперь можно запускать новый раунд мэтчинга.",
+                reply_markup=get_admin_matching_inline()
+            )
+        else:
+            await callback.message.edit_text(
+                "❌ Ошибка при очистке мэтчей",
+                reply_markup=get_admin_matching_inline()
+            )
+    except Exception as e:
+        await callback.message.edit_text(
+            f"❌ Ошибка при очистке: {e}",
+            reply_markup=get_admin_matching_inline()
+        )
+    await callback.answer()
+
+
 @router.callback_query(F.data == "admin_debug")
 async def admin_debug(callback: CallbackQuery):
     """Отладочная информация"""
@@ -827,6 +728,159 @@ async def admin_db_settings(callback: CallbackQuery):
         await admin_settings(callback)
     except Exception as e:
         await callback.answer(f"❌ Ошибка: {e}")
+
+# ===== ЭКСПОРТ CSV =====
+
+
+@router.callback_query(F.data == "admin_export_csv")
+async def admin_export_csv(callback: CallbackQuery):
+    """Экспорт данных в CSV"""
+    if not is_admin(callback.from_user.id):
+        await callback.answer("Нет доступа")
+        return
+
+    try:
+        # Создаем CSV файл в памяти с разделителем табуляции
+        output = io.StringIO()
+        writer = csv.writer(output, delimiter='\t', quoting=csv.QUOTE_ALL)  # Используем табуляцию как разделитель
+        
+        # Заголовки для пользователей
+        writer.writerow([
+            'User ID', 'Username', 'Name', 'Age', 'City', 'Profession', 
+            'Interests', 'Goals', 'About', 'LinkedIn URL', 'Contact Preference',
+            'Registration Date', 'Last Active', 'Is Active', 'Matches Count', 'Profile Completed'
+        ])
+        
+        # Данные пользователей
+        users = db.get_all_active_users()
+        for user in users:
+            # Очищаем и форматируем данные
+            writer.writerow([
+                user.get('user_id', ''),
+                user.get('username', ''),
+                user.get('name', ''),
+                user.get('age', ''),
+                user.get('city', ''),
+                user.get('profession', ''),
+                clean_csv_value(user.get('interests', '')),
+                clean_csv_value(user.get('goals', '')),
+                clean_csv_value(user.get('about', '')),
+                user.get('linkedin_url', ''),
+                user.get('contact_preference', ''),
+                format_date(user.get('registration_date', '')),
+                format_date(user.get('last_active', '')),
+                user.get('is_active', ''),
+                user.get('matches_count', ''),
+                user.get('profile_completed', '')
+            ])
+        
+        # Перемещаем указатель в начало
+        output.seek(0)
+        
+        # Создаем файл для отправки
+        csv_file = BufferedInputFile(
+            output.getvalue().encode('utf-8-sig'),
+            filename=f"users_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.tsv"  # Меняем расширение на TSV
+        )
+        
+        await callback.message.answer_document(
+            document=csv_file,
+            caption=f"📊 Экспорт данных пользователей (TSV формат)\n\n"
+                   f"Всего пользователей: {len(users)}\n"
+                   f"Дата экспорта: {datetime.now().strftime('%d.%m.%Y %H:%M')}\n"
+                   f"Формат: TSV (табуляция как разделитель)"
+        )
+        
+        await callback.answer("✅ Файл успешно экспортирован!")
+        
+    except Exception as e:
+        logger.error(f"Error exporting CSV: {e}")
+        await callback.message.edit_text(
+            f"❌ Ошибка при экспорте CSV: {e}",
+            reply_markup=get_admin_management_inline()
+        )
+        await callback.answer()
+
+
+
+@router.callback_query(F.data == "admin_export_matches_csv")
+async def admin_export_matches_csv(callback: CallbackQuery):
+    """Экспорт мэтчей в CSV"""
+    if not is_admin(callback.from_user.id):
+        await callback.answer("Нет доступа")
+        return
+
+    try:
+        # Создаем CSV файл в памяти
+        output = io.StringIO()
+        writer = csv.writer(output, quoting=csv.QUOTE_ALL)  # Добавляем QUOTE_ALL
+        
+        # Заголовки для мэтчей
+        writer.writerow([
+            'Match ID', 'User1 ID', 'User1 Name', 'User2 ID', 'User2 Name',
+            'Match Score', 'Common Interests', 'Status', 'Created Date',
+            'Accepted Date', 'Is Forced', 'User1 Accepted', 'User2 Accepted',
+            'Chat Created', 'Match Successful'
+        ])
+        
+        # Получаем все мэтчи
+        conn = db.get_connection()
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT m.*, u1.name as user1_name, u2.name as user2_name
+            FROM matches m
+            LEFT JOIN users u1 ON m.user1_id = u1.user_id
+            LEFT JOIN users u2 ON m.user2_id = u2.user_id
+            ORDER BY m.created_date DESC
+        ''')
+        
+        matches = cursor.fetchall()
+        conn.close()
+        
+        for match in matches:
+            writer.writerow([
+                match[0],  # id
+                match[1],  # user1_id
+                match[14] if len(match) > 14 else '',  # user1_name
+                match[2],  # user2_id
+                match[15] if len(match) > 15 else '',  # user2_name
+                match[3],  # match_score
+                clean_csv_value(match[4] if len(match) > 4 else ''),  # common_interests
+                match[5] if len(match) > 5 else '',  # status
+                format_date(match[6] if len(match) > 6 else ''),  # created_date
+                format_date(match[7] if len(match) > 7 else ''),  # accepted_date
+                match[8] if len(match) > 8 else '',  # is_forced
+                match[9] if len(match) > 9 else '',  # user1_accepted
+                match[10] if len(match) > 10 else '',  # user2_accepted
+                match[11] if len(match) > 11 else '',  # chat_created
+                match[12] if len(match) > 12 else ''   # match_successful
+            ])
+        
+        # Перемещаем указатель в начало
+        output.seek(0)
+        
+        # Создаем файл для отправки
+        csv_file = BufferedInputFile(
+            output.getvalue().encode('utf-8-sig'),  # Меняем на utf-8-sig для Excel
+            filename=f"matches_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        )
+        
+        await callback.message.answer_document(
+            document=csv_file,
+            caption=f"📊 Экспорт данных мэтчей\n\n"
+                   f"Всего мэтчей: {len(matches)}\n"
+                   f"Дата экспорта: {datetime.now().strftime('%d.%m.%Y %H:%M')}"
+        )
+        
+        await callback.answer("✅ Файл мэтчей успешно экспортирован!")
+        
+    except Exception as e:
+        logger.error(f"Error exporting matches CSV: {e}")
+        await callback.message.edit_text(
+            f"❌ Ошибка при экспорте мэтчей CSV: {e}",
+            reply_markup=get_admin_management_inline()
+        )
+        await callback.answer()
 
 # ===== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ =====
 

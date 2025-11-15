@@ -63,6 +63,22 @@ async def process_goals(message: Message, state: FSMContext):
 @router.message(RegistrationStates.waiting_about)
 async def process_about(message: Message, state: FSMContext):
     await state.update_data(about=message.text)
+    await message.answer("Пришлите ссылку на ваш LinkedIn профиль:")
+    await state.set_state(RegistrationStates.waiting_linkedin)
+
+@router.message(RegistrationStates.waiting_linkedin)
+async def process_linkedin(message: Message, state: FSMContext):
+    linkedin_url = message.text.strip()
+    
+    # Простая валидация LinkedIn URL
+    if not linkedin_url.startswith(('http://', 'https://')):
+        linkedin_url = f"https://{linkedin_url}"
+    
+    if 'linkedin.com' not in linkedin_url:
+        await message.answer("Пожалуйста, введите корректную ссылку на LinkedIn профиль:")
+        return
+    
+    await state.update_data(linkedin_url=linkedin_url)
     await message.answer("Как предпочитаешь общаться? (Telegram, email, другое)")
     await state.set_state(RegistrationStates.waiting_contact_preference)
 
@@ -80,6 +96,7 @@ async def process_contact_preference(message: Message, state: FSMContext):
         interests=user_data['interests'],
         goals=user_data['goals'],
         about=user_data['about'],
+        linkedin_url=user_data['linkedin_url'],
         contact_preference=message.text
     )
     
@@ -88,7 +105,7 @@ async def process_contact_preference(message: Message, state: FSMContext):
             "🎉 Отлично! Твой профиль заполнен!\n\n"
             "Теперь ты в системе Random Coffee. Я буду подбирать тебе собеседников "
             "на основе твоих интересов и отправлять уведомления.\n\n"
-            "Обычно мэтчинг происходит 1-2 раза в неделю. Жди приглашения! ✨",
+            "Мэтчинг запускается администратором вручную. Жди приглашения! ✨",
             reply_markup=get_main_menu_inline()
         )
     else:

@@ -31,6 +31,7 @@ class Database:
                 interests TEXT,
                 goals TEXT,
                 about TEXT,
+                linkedin_url TEXT,
                 contact_preference TEXT,
                 registration_date TEXT,
                 last_active TEXT,
@@ -62,6 +63,10 @@ class Database:
                 created_date TEXT,
                 accepted_date TEXT,
                 is_forced BOOLEAN DEFAULT FALSE,
+                user1_accepted BOOLEAN DEFAULT FALSE,
+                user2_accepted BOOLEAN DEFAULT FALSE,
+                chat_created BOOLEAN DEFAULT FALSE,
+                match_successful BOOLEAN DEFAULT NULL,
                 FOREIGN KEY (user1_id) REFERENCES users (user_id),
                 FOREIGN KEY (user2_id) REFERENCES users (user_id)
             )
@@ -99,7 +104,8 @@ class Database:
             ("Какие у тебя интересы/хобби? (перечисли через запятую)", 5),
             ("Что ищешь в Random Coffee? (новые знакомства, бизнес-контакты, друзья)", 6),
             ("Расскажи о себе кратко", 7),
-            ("Как предпочитаешь общаться? (Telegram, email, другое)", 8)
+            ("Пришлите ссылку на ваш LinkedIn профиль", 8),
+            ("Как предпочитаешь общаться? (Telegram, email, другое)", 9)
         ]
         
         cursor.execute("SELECT COUNT(*) FROM questions")
@@ -109,10 +115,29 @@ class Database:
                 default_questions
             )
         
+        # Проверяем и добавляем отсутствующие колонки
+        self._update_table_structure(cursor, "users", "linkedin_url", "TEXT")
+        self._update_table_structure(cursor, "matches", "user1_accepted", "BOOLEAN DEFAULT FALSE")
+        self._update_table_structure(cursor, "matches", "user2_accepted", "BOOLEAN DEFAULT FALSE")
+        self._update_table_structure(cursor, "matches", "chat_created", "BOOLEAN DEFAULT FALSE")
+        self._update_table_structure(cursor, "matches", "match_successful", "BOOLEAN DEFAULT NULL")
+        
         conn.commit()
         conn.close()
         logger.info("Database initialized successfully")
     
+    def _update_table_structure(self, cursor, table_name, column_name, column_type):
+        """Добавляет колонку в таблицу если она отсутствует"""
+        try:
+            cursor.execute(f"PRAGMA table_info({table_name})")
+            columns = [column[1] for column in cursor.fetchall()]
+            
+            if column_name not in columns:
+                cursor.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type}")
+                logger.info(f"Added column {column_name} to table {table_name}")
+        except Exception as e:
+            logger.error(f"Error updating table structure: {e}")
+
     # === USER METHODS ===
     def add_user(self, user_id: int, username: str = None) -> bool:
         try:
@@ -269,13 +294,17 @@ class Database:
                        CASE 
                            WHEN m.user1_id = ? THEN u2.username 
                            ELSE u1.username 
-                       END as partner_username
+                       END as partner_username,
+                       CASE 
+                           WHEN m.user1_id = ? THEN u2.linkedin_url 
+                           ELSE u1.linkedin_url 
+                       END as partner_linkedin
                 FROM matches m
                 LEFT JOIN users u1 ON m.user1_id = u1.user_id
                 LEFT JOIN users u2 ON m.user2_id = u2.user_id
                 WHERE (m.user1_id = ? OR m.user2_id = ?) 
                 AND m.status = 'pending'
-            ''', (user_id, user_id, user_id, user_id))
+            ''', (user_id, user_id, user_id, user_id, user_id))
             
             rows = cursor.fetchall()
             conn.close()
@@ -302,6 +331,100 @@ class Database:
             return True
         except Exception as e:
             logger.error(f"Error updating match status: {e}")
+            return False
+    
+    def update_match_acceptance(self, match_id: int, user_id: int, accepted: bool) -> bool:
+        """Обновляет статус принятия мэтча пользователем"""
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            
+            # Определяем, какой пользователь принимает
+            cursor.execute('SELECT user1_id, user2_id FROM matches WHERE id = ?', (match_id,))
+            match = cursor.fetchone()
+            
+            if not match:
+                return False
+            
+            user1_id, user2_id = match
+            
+            if user_id == user1_id:
+                cursor.execute('UPDATE matches SET user1_accepted = ? WHERE id = ?', (accepted, match_id))
+            elif user_id == user2_id:
+                cursor.execute('UPDATE matches SET user2_accepted = ? WHERE id = ?', (accepted, match_id))
+            else:
+                return False
+            
+            # Проверяем, оба ли приняли
+            cursor.execute('SELECT user1_accepted, user2_accepted FROM matches WHERE id = ?', (match_id,))
+            user1_accepted, user2_accepted = cursor.fetchone()
+            
+            if user1_accepted and user2_accepted:
+                cursor.execute('UPDATE matches SET chat_created = TRUE WHERE id = ?', (match_id,))
+            
+            conn.commit()
+            conn.close()
+            return True
+        except Exception as e:
+            logger.error(f"Error updating match acceptance: {e}")
+            return False
+    
+    def set_match_success(self, match_id: int, successful: bool) -> bool:
+        """Устанавливает статус успешности мэтча"""
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            
+            cursor.execute('UPDATE matches SET match_successful = ? WHERE id = ?', (successful, match_id))
+            
+            conn.commit()
+            conn.close()
+            return True
+        except Exception as e:
+            logger.error(f"Error setting match success: {e}")
+            return False
+    
+    def get_match(self, match_id: int) -> Optional[dict]:
+        """Получает информацию о мэтче по ID"""
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT m.*, u1.name as user1_name, u2.name as user2_name,
+                       u1.username as user1_username, u2.username as user2_username,
+                       u1.linkedin_url as user1_linkedin, u2.linkedin_url as user2_linkedin
+                FROM matches m
+                LEFT JOIN users u1 ON m.user1_id = u1.user_id
+                LEFT JOIN users u2 ON m.user2_id = u2.user_id
+                WHERE m.id = ?
+            ''', (match_id,))
+            
+            row = cursor.fetchone()
+            conn.close()
+            
+            if row:
+                columns = [description[0] for description in cursor.description]
+                return dict(zip(columns, row))
+            return None
+        except Exception as e:
+            logger.error(f"Error getting match: {e}")
+            return None
+    
+    def cleanup_matches(self):
+        """Очищает все сведения о мэтчах"""
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            
+            cursor.execute('DELETE FROM matches')
+            cursor.execute('DELETE FROM scheduled_matches')
+            
+            conn.commit()
+            conn.close()
+            logger.info("All matches cleaned up successfully")
+            return True
+        except Exception as e:
+            logger.error(f"Error cleaning up matches: {e}")
             return False
     
     def get_all_pending_matches(self) -> List[dict]:
@@ -437,117 +560,3 @@ class Database:
             conn.close()
         except Exception as e:
             logger.error(f"Error logging user action: {e}")
-    
-    def init_db(self):
-        """Инициализация всех таблиц"""
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        
-        # Таблица пользователей
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS users (
-                user_id INTEGER PRIMARY KEY,
-                username TEXT,
-                name TEXT,
-                age INTEGER,
-                city TEXT,
-                profession TEXT,
-                interests TEXT,
-                goals TEXT,
-                about TEXT,
-                contact_preference TEXT,
-                registration_date TEXT,
-                last_active TEXT,
-                is_active BOOLEAN DEFAULT TRUE,
-                matches_count INTEGER DEFAULT 0,
-                profile_completed BOOLEAN DEFAULT FALSE
-            )
-        ''')
-        
-        # Таблица мэтчей
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS matches (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user1_id INTEGER,
-                user2_id INTEGER,
-                match_score INTEGER,
-                common_interests TEXT,
-                status TEXT DEFAULT 'pending',
-                created_date TEXT,
-                accepted_date TEXT,
-                is_forced BOOLEAN DEFAULT FALSE,
-                FOREIGN KEY (user1_id) REFERENCES users (user_id),
-                FOREIGN KEY (user2_id) REFERENCES users (user_id)
-            )
-        ''')
-        
-        # Таблица запланированных мэтчей
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS scheduled_matches (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                match_date TEXT,
-                status TEXT DEFAULT 'scheduled',
-                created_date TEXT,
-                completed_date TEXT
-            )
-        ''')
-        
-        # Таблица действий пользователей
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS user_actions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER,
-                action_type TEXT,
-                target_user_id INTEGER,
-                action_date TEXT,
-                FOREIGN KEY (user_id) REFERENCES users (user_id)
-            )
-        ''')
-        
-        # Таблица вопросов анкеты
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS questions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                question_text TEXT,
-                question_order INTEGER,
-                is_active BOOLEAN DEFAULT TRUE
-            )
-        ''')
-        
-        # Добавляем стандартные вопросы
-        default_questions = [
-            ("Как тебя зовут?", 1),
-            ("Сколько тебе лет?", 2),
-            ("Из какого ты города?", 3),
-            ("Чем занимаешься (профессия/род деятельности)?", 4),
-            ("Какие у тебя интересы/хобби? (перечисли через запятую)", 5),
-            ("Что ищешь в Random Coffee? (новые знакомства, бизнес-контакты, друзья)", 6),
-            ("Расскажи о себе кратко", 7),
-            ("Как предпочитаешь общаться? (Telegram, email, другое)", 8)
-        ]
-        
-        cursor.execute("SELECT COUNT(*) FROM questions")
-        if cursor.fetchone()[0] == 0:
-            cursor.executemany(
-                "INSERT INTO questions (question_text, question_order) VALUES (?, ?)",
-                default_questions
-            )
-        
-        # Проверяем и добавляем отсутствующие колонки
-        self._update_table_structure(cursor, "matches", "is_forced", "BOOLEAN DEFAULT FALSE")
-        
-        conn.commit()
-        conn.close()
-        logger.info("Database initialized successfully")
-
-    def _update_table_structure(self, cursor, table_name, column_name, column_type):
-        """Добавляет колонку в таблицу если она отсутствует"""
-        try:
-            cursor.execute(f"PRAGMA table_info({table_name})")
-            columns = [column[1] for column in cursor.fetchall()]
-            
-            if column_name not in columns:
-                cursor.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type}")
-                logger.info(f"Added column {column_name} to table {table_name}")
-        except Exception as e:
-            logger.error(f"Error updating table structure: {e}")

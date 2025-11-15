@@ -200,11 +200,11 @@ class MatchMaker:
         
         if not user1 or not user2:
             return False
-        
+
         # Проверяем, не было ли уже мэтча
         if self.have_previous_match(user1_id, user2_id):
             return False
-        
+
         score, common_interests = self.calculate_match_score(user1, user2)
-        
+
         return self.db.create_match(user1_id, user2_id, score, common_interests)

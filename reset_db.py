@@ -11,6 +11,7 @@ def reset_database():
     print("✅ Новая база данных создана")
     
     # Добавляем тестовых пользователей (с заполненными профилями)
+
     test_users = [
         {
             'user_id': 123456789,
@@ -22,6 +23,7 @@ def reset_database():
             'interests': 'программирование, AI, стартапы',
             'goals': 'бизнес-контакты, менторство',
             'about': 'Люблю создавать интересные проекты',
+            'linkedin_url': 'https://linkedin.com/in/adminuser',
             'contact_preference': 'Telegram'
         },
         {
@@ -34,6 +36,7 @@ def reset_database():
             'interests': 'дизайн, искусство, путешествия',
             'goals': 'новые знакомства, коллаборации',
             'about': 'Увлекаюсь UI/UX дизайном',
+            'linkedin_url': 'https://linkedin.com/in/ivan',
             'contact_preference': 'Telegram'
         },
         {
@@ -46,6 +49,7 @@ def reset_database():
             'interests': 'маркетинг, книги, йога',
             'goals': 'нетворкинг, друзья',
             'about': 'Работаю в digital-маркетинге',
+            'linkedin_url': 'https://linkedin.com/in/maria',
             'contact_preference': 'Email'
         }
     ]

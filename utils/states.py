@@ -9,6 +9,7 @@ class RegistrationStates(StatesGroup):
     waiting_interests = State()
     waiting_goals = State()
     waiting_about = State()
+    waiting_linkedin = State()
     waiting_contact_preference = State()
 
 
